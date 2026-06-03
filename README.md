@@ -8,7 +8,10 @@ dependencies (the SQLite driver is pure Go).
 ## Build
 
 ```bash
-cd go
+
+export GOPATH="$HOME/src/go"
+export GOMODCACHE=$GOPATH/pkg/mod
+
 go build -o nextcloud-ical-backup ./cmd/nextcloud-ical-backup
 ```
 

@@ -49,11 +49,11 @@ config.php
 
 # --- Go ----------------------------------------------------------------------
 # Compiled binary produced by `go build` in go/.
-/go/nextcloud-ical-backup
+nextcloud-ical-backup
 *.test
 *.out
 # Keep go.mod/go.sum under version control; vendor/ is optional.
-/go/vendor/
+vendor/
 
 # --- Editor / OS -------------------------------------------------------------
 .idea/
