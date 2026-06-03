@@ -1,0 +1,126 @@
+# Release pipeline: build static binaries and publish them to the Forgejo
+# generic package registry.
+#
+# Trigger: manual only (workflow_dispatch) AND only when dispatched on a
+# release tag. In the Forgejo UI pick the tag under "Use workflow from".
+#
+# Generic package upload endpoint (see
+# https://forgejo.org/docs/latest/user/packages/generic/):
+#   PUT {server}/api/packages/{owner}/generic/{package}/{version}/{filename}
+#
+# Required repository/organization secret:
+#   FORGEJO_TOKEN  - access token allowed to write packages (scope: write:package).
+#                    The job authenticates as ${{ github.actor }} with this token.
+#
+# Binaries are built with CGO_ENABLED=0; the pure-Go SQLite driver makes them
+# fully static and dependency-free.
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Override version (defaults to the dispatched tag name)."
+        required: false
+
+env:
+  GO_VERSION: "1.24"
+  PACKAGE_NAME: nextcloud-ical-backup
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a release tag
+        run: |
+          case "${{ github.ref }}" in
+            refs/tags/*) echo "Releasing tag '${{ github.ref_name }}'." ;;
+            *) echo "A release must be dispatched on a release tag, not '${{ github.ref }}'."
+               echo "In the Forgejo UI choose the tag under 'Use workflow from'."
+               exit 1 ;;
+          esac
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Format, vet, test
+        working-directory: go
+        run: |
+          test -z "$(gofmt -l .)" || { echo "gofmt issues"; gofmt -l .; exit 1; }
+          go vet ./...
+          go test ./... -count=1
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          # - { goos: darwin, goarch: amd64 }
+          # - { goos: darwin, goarch: arm64 }
+          # - { goos: windows, goarch: amd64, ext: ".exe" }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Resolve version
+        id: ver
+        run: |
+          version="${{ github.event.inputs.version }}"
+          [ -n "$version" ] || version="${{ github.ref_name }}"
+          case "$version" in
+            *[0-9]*) ;;
+            *) echo "version '$version' does not look like a release version"; exit 1 ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build static binary
+        # working-directory: go
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          bin="${PACKAGE_NAME}_${{ steps.ver.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.ext }}"
+          build_date="$(date -u +%d.%m.%Y)"
+          mkdir -p ../dist
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.buildDate=${build_date}" \
+            -o "../dist/${bin}" ./cmd/nextcloud-ical-backup
+          ( cd ../dist && sha256sum "${bin}" > "${bin}.sha256" )
+          echo "BINARY=${bin}" >> "$GITHUB_ENV"
+
+      - name: Publish to Forgejo generic registry
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+        run: |
+          set -eu
+          if [ -z "${FORGEJO_TOKEN:-}" ]; then
+            echo "FORGEJO_TOKEN secret is not set"; exit 1
+          fi
+          base="${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/${PACKAGE_NAME}/${{ steps.ver.outputs.version }}"
+          for file in "${BINARY}" "${BINARY}.sha256"; do
+            echo "Uploading ${file} -> ${base}/${file}"
+            code="$(curl -sS -o /dev/null -w '%{http_code}' \
+              --user "${{ github.actor }}:${FORGEJO_TOKEN}" \
+              --upload-file "dist/${file}" \
+              "${base}/${file}")"
+            case "$code" in
+              201) echo "  created" ;;
+              409) echo "  already exists (409) - delete it first to re-publish"; exit 1 ;;
+              *)   echo "  upload failed with HTTP ${code}"; exit 1 ;;
+            esac
+          done

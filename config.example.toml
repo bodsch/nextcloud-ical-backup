@@ -1,0 +1,54 @@
+# Example configuration for nextcloud-ical-backup.
+#
+# Pass this file with:  nextcloud-ical-backup backup --config config.example.toml
+#
+# Precedence (lowest to highest):
+#     built-in defaults  <  this file  <  CLI parameters
+#
+# Every key is optional. Keys may live at the top level (as below) or inside a
+# [backup] table; table values win over their top-level counterparts.
+# CLI flags always override file values.
+
+# --- Nextcloud location -------------------------------------------------------
+
+# Path to the Nextcloud installation root. When set, both config.php and the
+# occ command are derived from it (config/config.php and ./occ respectively).
+nextcloud_path = "/var/www/nextcloud"
+
+# Explicit path to config.php. Takes precedence over nextcloud_path for the
+# database connection. Uncomment if config.php lives outside the default place.
+# config_php = "/etc/nextcloud/config.php"
+
+# Explicit occ invocation used for restore. Overrides the value derived from
+# nextcloud_path. Useful for snap installs ("nextcloud.occ") or containers.
+# occ_command = "php /var/www/nextcloud/occ"
+
+# --- Backup destination -------------------------------------------------------
+
+# Root directory of the backup tree. Files are written as:
+#     <backup_root>/<user>/ics/<calendar>.ics
+#     <backup_root>/<user>/vcf/<addressbook>.vcf
+backup_root = "/srv/backups/nextcloud"
+
+# --- Selection filters --------------------------------------------------------
+
+# Restrict to these usernames. Empty list (or omitted) means: all users.
+users = ["alice", "bob"]
+
+# Restrict to these calendar display names. Empty/omitted means: all calendars.
+calendars = []
+
+# Restrict to these addressbook display names. Empty/omitted means: all.
+addressbooks = []
+
+# Process calendars / addressbooks at all (set to false to skip a whole type).
+include_calendars = true
+include_addressbooks = true
+
+# --- Run mode -----------------------------------------------------------------
+
+# Print intended actions without writing or importing anything.
+dry_run = false
+
+# Only list the selectable items (combinable with the filters above).
+list_only = false
