@@ -125,6 +125,50 @@ func TestRestorePerEntryImportsEachFile(t *testing.T) {
 	}
 }
 
+// existingCalendarRunner pretends the "Personal" calendar already exists with
+// the lowercase URI "personal" (as the Nextcloud default calendar does).
+type existingCalendarRunner struct {
+	calls [][]string
+}
+
+func (r *existingCalendarRunner) run(args []string, _ []byte) (string, error) {
+	r.calls = append(r.calls, args)
+	if args[0] == "dav:list-calendars" {
+		return strings.Join([]string{
+			"+----------+-------------+-------------------------+-------------------+----------+",
+			"| URI      | Displayname | Owner principal         | Owner displayname | Writable |",
+			"+----------+-------------+-------------------------+-------------------+----------+",
+			"| personal | Personal    | principals/users/alice  | alice             |    ✓     |",
+			"+----------+-------------+-------------------------+-------------------+----------+",
+		}, "\n"), nil
+	}
+	return "ok", nil
+}
+
+// TestRestoreUsesCalendarURI verifies that import targets the existing
+// calendar's URI ("personal"), not its display name ("Personal"), and that no
+// duplicate calendar is created.
+func TestRestoreUsesCalendarURI(t *testing.T) {
+	root := t.TempDir()
+	makePerEntryTree(t, root)
+	rr := &existingCalendarRunner{}
+	svc, _ := NewRestoreService("php occ", rr.run)
+	if _, err := svc.Restore(root, domain.DefaultFilter(), false); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range rr.calls {
+		if c[0] == "dav:create-calendar" {
+			t.Errorf("must not create an already existing calendar: %v", c)
+		}
+		if c[0] == "calendar:import" {
+			uri := c[len(c)-1]
+			if uri != "personal" {
+				t.Errorf("import target = %q, want %q", uri, "personal")
+			}
+		}
+	}
+}
+
 func TestRestoreDryRunNoImport(t *testing.T) {
 	root := t.TempDir()
 	makeAggregateTree(t, root)

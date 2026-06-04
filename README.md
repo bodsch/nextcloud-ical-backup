@@ -39,11 +39,79 @@ go build -ldflags "-X main.version=v0.2.0 -X main.buildDate=$(date -u +%Y-%m-%dT
 
 # Restore (dry-run) – auto-detects both backup layouts
 ./nextcloud-ical-backup restore --nextcloud-path /var/www/nextcloud \
-                                --backup-root ./backup --calendar Personal --dry-run
+                                --backup-root ./backup/2026-06-04 --calendar Personal --dry-run
 ```
 
 Configuration precedence matches the Python version:
 built-in defaults < `--config <file.toml>` < CLI flags.
+
+## Backup tree layout
+
+Each backup run writes into a **dated subdirectory** of `--backup-root`
+(`YYYY-MM-DD`), so consecutive runs are kept side by side instead of
+overwriting each other. Beneath the date, the tree is grouped by user and item
+type:
+
+```text
+backup/
+└── 2026-06-04/                 # one directory per backup day
+    └── bodsch/                 # one directory per user
+        ├── ics/                # calendars
+        │   └── Personal/       # per-entry layout: one .ics per event
+        │       ├── <uid-1>.ics
+        │       └── <uid-2>.ics
+        └── vcf/                # addressbooks
+            └── Contacts/       # per-entry layout: one .vcf per contact
+                └── <uid>.vcf
+```
+
+In **aggregate** mode (`--aggregate`) each calendar/addressbook is a single
+combined file instead of a directory, e.g. `ics/Personal.ics`.
+
+## Restore
+
+Restore is a deliberately manual, explicit step — there is no auto-selection of
+the "latest" backup. Point `--backup-root` at the level that **contains the
+user directories**, i.e. the dated directory of the run you want to restore:
+
+```bash
+./nextcloud-ical-backup restore \
+  --nextcloud-path /var/www/nextcloud \
+  --backup-root ./backup/2026-06-04 \
+  --user bodsch --calendar Personal --dry-run
+```
+
+The discovery expects exactly the layout produced by `backup` and resolves it
+relative to `--backup-root`:
+
+```text
+<backup-root>/<user>/ics/<calendar>/*.ics   (or ics/<calendar>.ics in aggregate mode)
+<backup-root>/<user>/vcf/<addressbook>/*.vcf
+```
+
+If you point `--backup-root` deeper (e.g. directly at `ics/Personal/`), the
+entries there are misinterpreted as user directories and **nothing is found**.
+
+Reading the report output:
+
+```text
+calendar: bodsch/Personal (4 file(s))
+Restored 1 calendar(s), skipped 0 item(s).
+```
+
+- **1 calendar** counts the restored calendar (`Personal`).
+- **4 file(s)** are the per-event `.ics` files that make up that one calendar;
+  in per-entry mode they are all imported into the same calendar.
+
+Notes:
+
+- Use `--list-only` to print the discovered targets without invoking `occ` —
+  handy for confirming the layout before a real restore.
+- Use `--dry-run` to run the full selection but skip the `occ` import.
+- Filter with repeatable `--user`, `--calendar` and `--addressbook` flags;
+  omit them to restore everything found.
+- **Addressbooks are skipped** on restore: stock Nextcloud `occ` has no contact
+  import. They are reported under "skipped".
 
 ## Layout
 

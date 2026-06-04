@@ -203,19 +203,59 @@ func (s *RestoreService) restoreCalendar(t RestoreTarget, dryRun bool) error {
 	return nil
 }
 
-// ensureCalendar creates the calendar for username if it does not already
-// exist and returns its URI.
-func (s *RestoreService) ensureCalendar(username, calendarName string) (string, error) {
+// calendarRow is one entry parsed from `occ dav:list-calendars` output.
+type calendarRow struct {
+	uri         string
+	displayName string
+}
+
+// ensureCalendar resolves the calendar URI to import into, creating the
+// calendar first if no calendar with a matching URI or display name exists
+// yet. It returns the URI (not the display name): calendar:import expects the
+// URI, and an existing calendar's URI often differs from its display name
+// (e.g. display name "Personal" has URI "personal").
+func (s *RestoreService) ensureCalendar(username, wanted string) (string, error) {
 	existing, err := s.run([]string{"dav:list-calendars", username, "--no-ansi"}, nil)
 	if err != nil {
 		return "", err
 	}
-	if !strings.Contains(existing, calendarName) {
-		if _, err := s.run([]string{"dav:create-calendar", username, calendarName}, nil); err != nil {
-			return "", err
+	for _, c := range parseCalendars(existing) {
+		if c.uri == wanted || c.displayName == wanted {
+			return c.uri, nil
 		}
 	}
-	return calendarName, nil
+	// Not present yet: create it. dav:create-calendar uses the given name as
+	// the calendar URI, so that same name is the URI to import into.
+	if _, err := s.run([]string{"dav:create-calendar", username, wanted}, nil); err != nil {
+		return "", err
+	}
+	return wanted, nil
+}
+
+// parseCalendars extracts calendars from the table printed by
+// `occ dav:list-calendars`. The columns are, in order: URI, Displayname,
+// Owner principal, Owner displayname, Writable. Header, separator (+---+) and
+// informational lines are ignored.
+func parseCalendars(output string) []calendarRow {
+	var rows []calendarRow
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		// Split on "|"; cols[0] is the empty text before the first border,
+		// so the real columns start at index 1. Need at least URI + name.
+		cols := strings.Split(line, "|")
+		if len(cols) < 3 {
+			continue
+		}
+		uri := strings.TrimSpace(cols[1])
+		if uri == "" || uri == "URI" { // skip empty rows and the header
+			continue
+		}
+		rows = append(rows, calendarRow{uri: uri, displayName: strings.TrimSpace(cols[2])})
+	}
+	return rows
 }
 
 // runSubprocess is the default OccRunner: it executes the configured occ

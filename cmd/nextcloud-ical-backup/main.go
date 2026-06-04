@@ -6,7 +6,9 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"bodsch.me/nextcloud-ical-backup/internal/ncconfig"
 	"bodsch.me/nextcloud-ical-backup/internal/repository"
@@ -135,7 +137,11 @@ func runBackup(argv []string) error {
 		return nil
 	}
 
-	report, err := svc.Export(s.BackupRoot, filter, service.ExportOptions{DryRun: s.DryRun, Aggregate: s.Aggregate})
+	// Write each run into a dated subdirectory (e.g. backup/2026-06-04/...)
+	// so consecutive backups are kept side by side instead of overwriting.
+	datedRoot := filepath.Join(s.BackupRoot, time.Now().Format("2006-01-02"))
+
+	report, err := svc.Export(datedRoot, filter, service.ExportOptions{DryRun: s.DryRun, Aggregate: s.Aggregate})
 	if err != nil {
 		return err
 	}
