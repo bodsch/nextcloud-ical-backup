@@ -9,7 +9,7 @@
 #   PUT {server}/api/packages/{owner}/generic/{package}/{version}/{filename}
 #
 # Required repository/organization secret:
-#   FORGEJO_TOKEN  - access token allowed to write packages (scope: write:package).
+#   RUNNER_TOKEN  - access token allowed to write packages (scope: write:package).
 #                    The job authenticates as ${{ github.actor }} with this token.
 #
 # Binaries are built with CGO_ENABLED=0; the pure-Go SQLite driver makes them
@@ -105,17 +105,17 @@ jobs:
 
       - name: Publish to Forgejo generic registry
         env:
-          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          RUNNER_TOKEN: ${{ secrets.RUNNER_TOKEN }}
         run: |
           set -eu
-          if [ -z "${FORGEJO_TOKEN:-}" ]; then
-            echo "FORGEJO_TOKEN secret is not set"; exit 1
+          if [ -z "${RUNNER_TOKEN:-}" ]; then
+            echo "RUNNER_TOKEN secret is not set"; exit 1
           fi
           base="${{ github.server_url }}/api/packages/${{ github.repository_owner }}/generic/${PACKAGE_NAME}/${{ steps.ver.outputs.version }}"
           for file in "${BINARY}" "${BINARY}.sha256"; do
             echo "Uploading ${file} -> ${base}/${file}"
-            code="$(curl -sS -o /dev/null -w '%{http_code}' \
-              --user "${{ github.actor }}:${FORGEJO_TOKEN}" \
+            code="$(curl --show-error --output /dev/null --write-out '%{http_code}' \
+              --user "${{ github.actor }}:${RUNNER_TOKEN}" \
               --upload-file "dist/${file}" \
               "${base}/${file}")"
             case "$code" in
