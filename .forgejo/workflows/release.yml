@@ -96,11 +96,11 @@ jobs:
           set -eu
           bin="${PACKAGE_NAME}_${{ steps.ver.outputs.version }}_${{ matrix.goos }}_${{ matrix.goarch }}${{ matrix.ext }}"
           build_date="$(date -u +%d.%m.%Y)"
-          mkdir -p ../dist
+          mkdir -p dist
           go build -trimpath \
             -ldflags "-s -w -X main.version=${{ steps.ver.outputs.version }} -X main.buildDate=${build_date}" \
-            -o "../dist/${bin}" ./cmd/nextcloud-ical-backup
-          ( cd ../dist && sha256sum "${bin}" > "${bin}.sha256" )
+            -o "dist/${bin}" ./cmd/nextcloud-ical-backup
+          ( cd dist && sha256sum "${bin}" > "${bin}.sha256" )
           echo "BINARY=${bin}" >> "$GITHUB_ENV"
 
       - name: Publish to Forgejo generic registry
