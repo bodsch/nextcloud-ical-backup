@@ -49,7 +49,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Format, vet, test
-        working-directory: go
+        # working-directory: go
         run: |
           test -z "$(gofmt -l .)" || { echo "gofmt issues"; gofmt -l .; exit 1; }
           go vet ./...
