@@ -1,0 +1,42 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.12.2
+    hooks:
+      - id: golangci-lint
+        args: [--fix]
+
+  - repo: local
+    hooks:
+      - id: gofmt
+        name: gofmt
+        description: Format code with gofmt
+        entry: gofmt -w
+        language: system
+        types: [go]
+        pass_filenames: true
+
+      - id: go-vet
+        name: go vet
+        description: Run go vet
+        entry: go vet ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: go-test
+        name: go test
+        description: Run go tests
+        entry: go test -count=1 ./...
+        language: system
+        types: [go]
+        pass_filenames: false
+        stages: [pre-commit]
