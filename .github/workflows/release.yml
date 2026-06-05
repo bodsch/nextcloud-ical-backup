@@ -1,19 +1,4 @@
-# Release pipeline: build static binaries and publish them to the Forgejo
-# generic package registry.
-#
-# Trigger: manual only (workflow_dispatch) AND only when dispatched on a
-# release tag. In the Forgejo UI pick the tag under "Use workflow from".
-#
-# Generic package upload endpoint (see
-# https://forgejo.org/docs/latest/user/packages/generic/):
-#   PUT {server}/api/packages/{owner}/generic/{package}/{version}/{filename}
-#
-# Required repository/organization secret:
-#   RUNNER_TOKEN  - access token allowed to write packages (scope: write:package).
-#                    The job authenticates as ${{ github.actor }} with this token.
-#
-# Binaries are built with CGO_ENABLED=0; the pure-Go SQLite driver makes them
-# fully static and dependency-free.
+# Release pipeline
 
 name: release
 
@@ -43,56 +28,67 @@ env:
   PACKAGE_NAME: nextcloud-ical-backup
 
 jobs:
-  release:
-    name: GoReleaser
-    runs-on: ubuntu-24.04
+  verify:
+    name: "verify (go ${{ matrix.go }})"
+    runs-on: ubuntu-22.04
+    if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - "1.24"
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v6.0.2
-        with:
-          # GoReleaser needs the full history to generate a changelog and
-          # to derive {{ .Version }} from the tag annotation.
-          fetch-depth: 0
+        uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v6.4.0
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: ${{ matrix.go }}
           cache: true
 
-      # QEMU lets us build the linux/arm64 image on an amd64 runner.
-      # buildx provides the multi-arch builder GoReleaser drives.
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4.0.0
+      - name: Go version
+        run: go version
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./...
+
+  release-linux-amd64:
+    name: "release linux/amd64 (go ${{ matrix.go }})"
+    runs-on: ubuntu-22.04
+    if: >
+      startsWith(github.ref, 'refs/tags/')
+      || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+    strategy:
+      fail-fast: false
+      matrix:
+        go:
+          - "1.24"
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          platforms: arm64
+          fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4.0.0
-
-      - name: Login to GHCR
-        uses: docker/login-action@v4.1.0
+      - name: Release binary
+        uses: wangyoucao577/go-release-action@v1.55
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GH_TOKEN }}
-
-      # GHCR requires lowercase image paths; org/repo on GitHub may be mixed case.
-      - name: Compute lowercase repository
-        id: repo
-        run: |
-          lower=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "lower=${lower}" >> "$GITHUB_OUTPUT"
-
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v7.2.1
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-          DOCKER_REGISTRY: ghcr.io
-          DOCKER_REPO: ${{ steps.repo.outputs.lower }}
-          # When triggered manually, tell GoReleaser which tag to use.
-          GORELEASER_CURRENT_TAG: ${{ inputs.tag || github.ref_name }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          release_tag: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
+          goos: linux
+          goarch: amd64
+          goversion: ${{ matrix.go }}
+          binary_name: nextcloud-ical-backup
+          sha256sum: true
+          overwrite: true
+          extra_files: LICENSE README.md config.example.toml
