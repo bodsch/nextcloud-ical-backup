@@ -1,4 +1,16 @@
-# Release pipeline
+# Release pipeline for nextcloud-ical-backup.
+#
+# Triggered automatically when a semver tag (e.g. 1.2.3 or v1.2.3) is pushed
+# to GitHub via the Forgejo->GitHub mirror, or manually via workflow_dispatch
+# with the target tag as input.
+#
+# Produces a GitHub Release containing:
+#   - Static binaries for linux/amd64 and linux/arm64
+#   - Each bundled as a tar.gz together with LICENSE, README and example config
+#   - Accompanied by a SHA-256 checksum file per archive
+#
+# The binaries embed the release version and build date via -ldflags into
+# main.version / main.buildDate.
 
 name: release
 
@@ -10,14 +22,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Override version (defaults to the dispatched tag name)."
-        required: false
+        description: "Tag to release (e.g. 1.2.3). Required for manual dispatch."
+        required: true
         type: string
 
 permissions:
-  contents: write   # create GitHub release, upload artifacts
-  packages: write   # push container images to GHCR
-  id-token: write   # reserved for future OIDC use (cosign, attestations)
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -26,69 +36,139 @@ concurrency:
 env:
   GO_VERSION: "1.24"
   PACKAGE_NAME: nextcloud-ical-backup
+  CMD_PATH: ./cmd/nextcloud-ical-backup
 
 jobs:
   verify:
-    name: "verify (go ${{ matrix.go }})"
+    name: verify
     runs-on: ubuntu-22.04
-    if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
-    strategy:
-      fail-fast: false
-      matrix:
-        go:
-          - "1.24"
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go }}
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - name: Go version
-        run: go version
-
-      - name: Build
-        run: go build ./...
+      - name: Vet
+        run: go vet ./...
 
       - name: Test
-        run: go test ./...
+        run: go test ./... -count=1
 
-  release-linux-amd64:
-    name: "release linux/amd64 (go ${{ matrix.go }})"
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: verify
     runs-on: ubuntu-22.04
-    if: >
-      startsWith(github.ref, 'refs/tags/')
-      || (github.event_name == 'workflow_dispatch' && inputs.release_tag != '')
+
     strategy:
       fail-fast: false
       matrix:
-        go:
-          - "1.24"
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Resolve release tag
+        id: ver
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ github.event.inputs.tag }}"
+          else
+            tag="${{ github.ref_name }}"
+          fi
+          [ -n "$tag" ] || { echo "Empty tag." >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing tag: $tag"
+
+      - name: Build static binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -eu
+          version="${{ steps.ver.outputs.tag }}"
+          build_date="$(date -u +%Y-%m-%d)"
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${version} -X main.buildDate=${build_date}" \
+            -o "dist/${PACKAGE_NAME}" \
+            "${CMD_PATH}"
+
+      - name: Bundle release archive
+        run: |
+          set -eu
+          version="${{ steps.ver.outputs.tag }}"
+          base="${PACKAGE_NAME}_${version}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          archive="${base}.tar.gz"
+
+          # Stage all release contents in a clean directory before tar'ing,
+          # so the archive has a flat, predictable layout.
+          stage="$(mktemp -d)"
+          install -m 0755 "dist/${PACKAGE_NAME}" "${stage}/${PACKAGE_NAME}"
+          install -m 0644 LICENSE README.md config.example.toml "${stage}/"
+
+          tar -C "${stage}" -czf "dist/${archive}" .
+          ( cd dist && sha256sum "${archive}" > "${archive}.sha256" )
+          rm -rf "${stage}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-22.04
 
     permissions:
       contents: write
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
+          path: dist/
+          merge-multiple: true
 
-      - name: Release binary
-        uses: wangyoucao577/go-release-action@v1.55
+      - name: List artifacts
+        run: ls -la dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          release_tag: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release_tag }}
-          goos: linux
-          goarch: amd64
-          goversion: ${{ matrix.go }}
-          binary_name: nextcloud-ical-backup
-          sha256sum: true
-          overwrite: true
-          extra_files: LICENSE README.md config.example.toml
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: ${{ needs.build.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.sha256
