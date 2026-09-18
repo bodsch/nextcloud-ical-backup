@@ -113,15 +113,14 @@ jobs:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |
-          make build
-          # set -eu
-          # version="${{ steps.ver.outputs.tag }}"
-          # build_date="$(date -u +%Y-%m-%d)"
-          # mkdir -p dist
-          # go build -trimpath \
-          #   -ldflags "-s -w -X main.version=${version} -X main.buildDate=${build_date}" \
-          #   -o "dist/${PACKAGE_NAME}" \
-          #   "${CMD_PATH}"
+          set -eu
+          version="${{ steps.ver.outputs.tag }}"
+          build_date="$(date -u +%Y-%m-%d)"
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags "-s -w -X main.version=${version} -X main.buildDate=${build_date}" \
+            -o "dist/${PACKAGE_NAME}" \
+            "${CMD_PATH}"
 
       - name: Bundle release archive
         run: |
