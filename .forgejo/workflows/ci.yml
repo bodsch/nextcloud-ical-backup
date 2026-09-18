@@ -28,6 +28,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Show Go version
+        run: go version
+
+      - name: Go mod download
+        run: go mod download
+
+      - name: Go mod verify
+        run: go mod verify
+
       - name: go vet
         run: make vet
 
