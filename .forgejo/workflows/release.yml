@@ -41,12 +41,21 @@ jobs:
                exit 1 ;;
           esac
 
-      - uses: https://code.forgejo.org/actions/checkout@v4
+      - name: Checkout repository
+        uses: https://code.forgejo.org/actions/checkout@v4
 
-      - uses: https://code.forgejo.org/actions/setup-go@v5
+      - name: Set up Go
+        uses: https://code.forgejo.org/actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: go.sum
+          go-version-file: go.mod
+          cache: true
+
+      # - uses: https://code.forgejo.org/actions/checkout@v4
+      #
+      # - uses: https://code.forgejo.org/actions/setup-go@v5
+      #   with:
+      #     go-version: ${{ env.GO_VERSION }}
+      #     cache-dependency-path: go.sum
 
       # - name: Format, vet, test
       #   # working-directory: go
@@ -68,12 +77,22 @@ jobs:
           # - { goos: darwin, goarch: arm64 }
           # - { goos: windows, goarch: amd64, ext: ".exe" }
     steps:
-      - uses: https://code.forgejo.org/actions/checkout@v4
 
-      - uses: https://code.forgejo.org/actions/setup-go@v5
+      - name: Checkout repository
+        uses: https://code.forgejo.org/actions/checkout@v4
+
+      - name: Set up Go
+        uses: https://code.forgejo.org/actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: go.sum
+          go-version-file: go.mod
+          cache: true
+
+      # - uses: https://code.forgejo.org/actions/checkout@v4
+      #
+      # - uses: https://code.forgejo.org/actions/setup-go@v5
+      #   with:
+      #     go-version: ${{ env.GO_VERSION }}
+      #     cache-dependency-path: go.sum
 
       - name: Resolve version
         id: ver
